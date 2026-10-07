@@ -38,4 +38,16 @@ Main Agent bu projenin kodlarına müdahale etmeyecektir; sen periyodik olarak d
 ### GÖREV 5: CONTAINER & DEVOPS TESTİ
 - `/plan/03_CONTAINER_AND_INFRASTRUCTURE.md` içindeki `docker-compose.yml` tanımını test et.
 - Tek komutla (`docker compose up -d`) ayağa kalktığını doğrula.
-- Main Agent'a tamamlandı raporu ilet.
+
+================================================================================
+3. TESLİMAT VE KABUL TESTİ ÇAĞRISI PROTOKOLÜ (HANDOVER CALL)
+================================================================================
+- Takım Lideri Ajanı (`team_lead`), tüm görevleri tamamlayıp kendi iç testlerini bitirdiğinde Main Agent'a resmi teslim çağrısı yapar:
+  **"Oyun bitti, test et."**
+- Bu çağrı üzerine Main Agent devreye girerek:
+  1. `@yorukgames/game-sdk` ve `/exchange-ticket` uçtan uca SSO bilet takas testini çalıştırır.
+  2. İzometrik motorun 60 FPS akıcılığını, draw call limitlerini (<25) ve Y-sort derinlik sıralamasını inceler.
+  3. `packages/core` matematik ve ekonomi birim testlerini (`npm test`) doğrular.
+  4. `docker compose up -d` ile izole ayağa kalkış testini gerçekleştirir.
+- Testler tam başarıyla sonuçlandığında Main Agent oyunu Kurucu onayına sunar ve ana vitrine (`yoruk_games/frontend/src/app/games`) canlı statüsünde kaydeder.
+
