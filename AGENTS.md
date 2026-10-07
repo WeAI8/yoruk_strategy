@@ -1,31 +1,44 @@
-# YORUK STRATEGY — AGENT & DEVELOPER CONSTITUTION (YGS-v1)
+# YORUK STRATEGY — LOCAL AGENT & ARCHITECTURE CONSTITUTION (YGS/GDP-v1)
 
 ================================================================================
-# 1. BAĞLAM VE TEMEL KURALLAR (IRON RULES)
+# 1. YÖNETİM, ROLLER VE DELEGASYON
 ================================================================================
 Bu repository "Yoruk Games" bağımsız oyun stüdyosunun ilk amiral gemisi strateji oyunudur.
-Bu projede çalışan her yapay zeka ajanı (AI Agent) veya geliştirici şu kurallara sorgusuz sualsiz uymak zorundadır:
 
-1. **PLATFORM İZOLASYONU (KIRILMAZ KURAL):**
-   - Bu proje Yoruk Games ana platformundan (`d:\antigravity-projects\yoruk_games`) tamamen bağımsızdır.
-   - Platformun veritabanına, Spring Boot kodlarına veya dahili servislerine ASLA doğrudan erişilemez.
-   - Kimlik ve oyuncu doğrulama YALNIZCA `@yorukgames/game-sdk` kütüphanesi ve platformun `/api/v1/auth/exchange-ticket` uç noktası üzerinden yürütülür.
+```
+┌──────────────────────────────────────────────┐
+│            YORUK GAMES MAIN AGENT            │
+│         (Çatı Platform Baş Mimarı)           │
+│  - Yalnızca /plan Dizinine Müdahale Eder     │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼ (/plan Yönergeleri ile)
+┌──────────────────────────────────────────────┐
+│           STRATEGY TEAM LEAD AGENT           │
+│         (Bu Projenin Tekil Yetkilisi)        │
+│  - packages/core (Simülasyon & Matematik)    │
+│  - server/ (100ms Otoriter Sunucu)           │
+│  - client/ (İzometrik Görsel İstemci)        │
+└──────────────────────────────────────────────┘
+```
 
-2. **3 KATMANLI MİMARİ (TRINITY PATTERN):**
-   - `packages/core/`: Saf TypeScript simülasyon ve formül kütüphanesi (DOM/Canvas yasaktır).
-   - `server/`: 100ms Fixed-Tick otoriter sunucu. Tek gerçek kaynaktır (Source of Truth).
-   - `client/`: Yalnızca görselleştirme ve girdi katmanıdır.
+1. **PROJE LİDERİ:** 
+   - Bu projedeki tüm teknik kararlar, mimari yönetim ve kodlama **Oyun Takım Lideri Ajanı (`strategy_team_lead`)** tarafından yürütülür.
+   - Main Agent bu projenin iç kodlarına doğrudan müdahale etmez; sınırları `plan/` altında çizer ve ilerlemeyi denetler.
 
-3. **SİMÜLASYON ÖNCELİĞİ (NO-CODE-BEFORE-MATH):**
-   - Bir mekanik (ekonomi, oba göçü, Turan taktiği) önce `packages/core` altında saf matematiksel olarak kodlanmalı ve `npm test` ile %100 test edilmiş olmalıdır.
-   - Testleri olmayan hiçbir mekanik `client/` veya `server/` katmanına aktarılamaz.
+2. **BAĞLAYICI PLANLAMA DOKÜMANLARI:**
+   Geliştirme ekibi `plan/` altındaki şu 5 sözleşmeyi kanun kabul eder:
+   - `plan/01_STUDIO_BOUNDARIES_AND_QUALITY.md`: Stüdyo sınırları ve kalite standartları.
+   - `plan/02_PLATFORM_SSO_AND_SDK_CONTRACT.md`: `@yorukgames/game-sdk` ve bilet takas protokolü.
+   - `plan/03_CONTAINER_AND_INFRASTRUCTURE.md`: Docker Compose ve port haritası.
+   - `plan/04_GAME_SPECIFICATION_GDD.md`: Oyun tasarım şartnamesi, kaynaklar ve savaş formülleri.
+   - `plan/05_TEAM_LEAD_DIRECTIVES.md`: Aşamalı iş listesi ve teslim kriterleri.
 
-4. **OTORİTER SUNUCU & SIFIR İSTEMCİ GÜVENİ:**
-   - İstemciye (client) asla güvenilmez.
-   - İstemci yalnızca kullanıcı niyetlerini (`INPUT_COMMAND`) sunucuya gönderir.
-   - Kaynaklar, birim sağlıkları, hasar ve konum onayları sunucu tarafından doğrulanır.
-
-5. **PERFORMANS & ASSET BÜTÇESİ:**
-   - WebGL draw call sayısı 25'i geçemez.
-   - Sabit 60 FPS hedeflenir. Bellek sızıntıları kesinlikle kabul edilmez.
-   - Görsel varlıklar mutlaka 2048x2048 Sprite Atlas formatında paketlenir.
+================================================================================
+2. 5 KIRILMAZ KURAL
+================================================================================
+1. **Platform İzolasyonu:** Ana platform (`yoruk_games`) veritabanına veya koduna doğrudan dokunulamaz.
+2. **Sıfır Bağımsız Giriş:** Kayıt/Giriş ekranı yapılamaz; sadece platformdan gelen SSO biletleri (`?ticket=tkt_...`) kabul edilir.
+3. **Trinity Katmanı:** `packages/core/` (Simülasyon), `server/` (Sunucu), `client/` (Görsel) ayrımı zorunludur.
+4. **No-Code-Before-Math:** Formüller ve unit testler (`npm test`) bitmeden görsel arayüz yazılamaz.
+5. **Dandik İş Çıkarma Yasağı:** 60 FPS, WebGL batching, zengin izometrik derinlik ve derin oyun mekanikleri esastır.
