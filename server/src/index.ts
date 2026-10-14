@@ -154,10 +154,12 @@ function handlePlayerMessage(userId: string, message: any, ws: WebSocket) {
 
     case 'EXECUTE_TURAN': {
       const battleResult = stateManager.executeTuranBattle(userId, message.x, message.y);
+      const reason = stateManager.lastBattleReason.get(userId);
       ws.send(
         JSON.stringify({
           type: 'BATTLE_RESULT',
           success: !!battleResult,
+          reason,
           payload: battleResult,
         })
       );

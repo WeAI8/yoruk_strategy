@@ -7,6 +7,8 @@ services:
       POSTGRES_DB: ${STRATEGY_DB_NAME:-yoruk_strategy_db}
       POSTGRES_USER: ${STRATEGY_DB_USER:-strategy_admin}
       POSTGRES_PASSWORD: ${STRATEGY_DB_PASSWORD:-strategy_secret_password}
+    ports:
+      - "127.0.0.1:${STRATEGY_DB_PORT:-5433}:5432"
     volumes:
       - strategy_db_data:/var/lib/postgresql/data
     networks:
@@ -21,6 +23,8 @@ services:
     image: redis:7-alpine
     container_name: yoruk_strategy_redis
     restart: always
+    ports:
+      - "127.0.0.1:${STRATEGY_REDIS_PORT:-6380}:6379"
     networks:
       - yoruk_strategy_net
     healthcheck:

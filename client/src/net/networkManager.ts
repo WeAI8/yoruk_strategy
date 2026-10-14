@@ -121,7 +121,7 @@ export class NetworkManager {
           if (this.onLog) {
             this.onLog({
               text: data.success
-                ? `Otağ Seviye ${data.newLevel}'e yükseltildi! (+5 Çadır, +25 Oba Nüfusu, +%15 Üretim)`
+                ? `Otağ Seviye ${data.newLevel}'e yükseltildi! (+5 Çadır, +40 Oba Nüfusu, +0.25 Otlak Verimi, +%15 Üretim)`
                 : data.reason || 'Otağ yükseltilemedi!',
               isAlert: true,
             });
@@ -136,22 +136,36 @@ export class NetworkManager {
             });
           }
         } else if (data.type === 'BATTLE_RESULT') {
-          if (this.onLog && data.payload) {
-            const p = data.payload;
-            const winText = p.winner === 'SIDE_A' ? 'ZAFER & FETİH' : 'MUHAREBE';
-            const retreatText = p.feignedRetreatSuccess ? 'Sahte Ricat Başarılı' : 'Doğrudan Hücum';
-            const conquestText = p.garrisonConquered
-              ? ` | Sancak Dikildi (${p.conqueredCount}/3 Garnizon)`
-              : '';
-            const lootText =
-              p.winner === 'SIDE_A'
-                ? `Ganimet: +${p.loot.gold} Altın, +${p.loot.horse} At, +${p.loot.iron} Demir, +${p.loot.food} Aş`
-                : 'Ganimet yok';
-            this.onLog({
-              text: `[${winText}] ${p.targetName} (${p.rounds?.length || 0} Tur) | ${retreatText} | Pusu Hasarı: ${p.ambushDamage}${conquestText} | ${lootText}`,
-              isAlert: true,
-              battleResult: p,
-            });
+          if (this.onLog) {
+            if (!data.success || !data.payload) {
+              this.onLog({
+                text:
+                  data.reason ||
+                  'Hedef garnizon çok uzakta! Önce obanızı hedefe yaklaştırın.',
+                isAlert: true,
+              });
+            } else {
+              const p = data.payload;
+              const winText = p.winner === 'SIDE_A' ? 'ZAFER & FETİH' : 'MUHAREBE';
+              const retreatText = p.feignedRetreatSuccess
+                ? 'Sahte Ricat Başarılı'
+                : 'Doğrudan Hücum';
+              const conquestText = p.garrisonConquered
+                ? ` | Sancak Dikildi (${p.conqueredCount}/3 Garnizon)`
+                : '';
+              const khaganText = p.isGreatKhaganVictory
+                ? ' | BOZKIRIN ULU KAĞANI İLAN EDİLDİ!'
+                : '';
+              const lootText =
+                p.winner === 'SIDE_A'
+                  ? `Ganimet: +${p.loot.gold} Altın, +${p.loot.horse} At, +${p.loot.iron} Demir, +${p.loot.food} Aş`
+                  : 'Ganimet yok';
+              this.onLog({
+                text: `[${winText}] ${p.targetName} (${p.rounds?.length || 0} Tur) | ${retreatText} | Pusu Hasarı: ${p.ambushDamage}${conquestText}${khaganText} | ${lootText}`,
+                isAlert: true,
+                battleResult: p,
+              });
+            }
           }
         }
       } catch (err) {

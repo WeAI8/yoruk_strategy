@@ -32,9 +32,11 @@ export interface ExchangeTicketResponse {
 
 export interface YorukSdkOptions {
   apiBaseUrl?: string;
-  clientId: string;
-  clientSecret: string;
+  platformUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
   autoExtractTicket?: boolean;
+  autoExchange?: boolean;
 }
 
 export class YorukGameClient {
@@ -43,10 +45,10 @@ export class YorukGameClient {
   private clientSecret: string;
   private currentSession: PlayerSession | null = null;
 
-  constructor(options: YorukSdkOptions) {
-    this.apiBaseUrl = options.apiBaseUrl || 'http://localhost:8080';
-    this.clientId = options.clientId;
-    this.clientSecret = options.clientSecret;
+  constructor(options: YorukSdkOptions = {}) {
+    this.apiBaseUrl = options.apiBaseUrl || options.platformUrl || 'http://localhost:8080';
+    this.clientId = options.clientId || '';
+    this.clientSecret = options.clientSecret || '';
   }
 
   /**
@@ -58,6 +60,17 @@ export class YorukGameClient {
     }
     const params = new URLSearchParams(window.location.search);
     return params.get('ticket');
+  }
+
+  /**
+   * Plan 02 sözleşmesindeki instance/statik metod uyumu için alias
+   */
+  public static extractTicketFromUrl(): string | null {
+    return YorukGameClient.getTicketFromUrl();
+  }
+
+  public extractTicketFromUrl(): string | null {
+    return YorukGameClient.getTicketFromUrl();
   }
 
   /**

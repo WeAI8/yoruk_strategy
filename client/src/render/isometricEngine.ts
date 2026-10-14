@@ -396,7 +396,7 @@ export class IsometricEngine {
     ctx.closePath();
     ctx.fillStyle = isSelf ? '#f7f3eb' : isConquered ? '#e6fffa' : '#d6c7b2';
     ctx.fill();
-    ctx.strokeStyle = isSelf ? '#d4af37' : isConquered ? '#38b2ac' : '#c53030';
+    ctx.strokeStyle = isSelf || isConquered ? '#d4af37' : '#c53030';
     ctx.lineWidth = 2 * z;
     ctx.stroke();
 
@@ -412,8 +412,8 @@ export class IsometricEngine {
     ctx.lineWidth = 2 * z;
     ctx.stroke();
 
-    // Sancak / Bayrak (Fethedilen garnizonlar Turkuaz/Gök sancağı taşır)
-    ctx.fillStyle = isSelf ? '#2b6cb0' : isConquered ? '#319795' : '#e53e3e';
+    // Sancak / Bayrak (Fethedilen garnizonlar Göktürk Mavisi #00e5ff & Altın #d4af37 sancağı taşır)
+    ctx.fillStyle = isSelf ? '#2b6cb0' : isConquered ? '#00e5ff' : '#dc2626';
     ctx.beginPath();
     ctx.moveTo(sx, sy - 40 * z);
     ctx.lineTo(sx + 13 * z, sy - 35 * z);
@@ -425,7 +425,7 @@ export class IsometricEngine {
     if (name) {
       ctx.font = `bold ${Math.max(9, Math.round(11 * z))}px Inter, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillStyle = isSelf ? '#fefcbf' : isConquered ? '#81e6d9' : '#fed7d7';
+      ctx.fillStyle = isSelf ? '#fefcbf' : isConquered ? '#00e5ff' : '#fed7d7';
       ctx.fillText(name, sx, sy - 45 * z);
     }
 

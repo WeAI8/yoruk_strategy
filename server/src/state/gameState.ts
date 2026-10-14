@@ -45,6 +45,7 @@ export interface NpcGarrison {
   name: string;
   gridX: number;
   gridY: number;
+  defenseLevel: number;
   army: ArmySquad;
   conqueredBy?: string;
   conqueredByName?: string;
@@ -58,6 +59,7 @@ export interface TuranBattleExecutionResult extends BattleSimulationResult {
   ambushDamage: number;
   garrisonConquered: boolean;
   conqueredCount: number;
+  isGreatKhaganVictory: boolean;
   loot: {
     gold: number;
     horse: number;
@@ -67,6 +69,7 @@ export interface TuranBattleExecutionResult extends BattleSimulationResult {
 }
 
 export const MAX_MIGRATION_DISTANCE = 14;
+export const MAX_ATTACK_DISTANCE = 10;
 export const MIGRATION_FOOD_COST = 10;
 export const MIGRATION_HORSE_COST = 1;
 
@@ -78,6 +81,7 @@ export class GameStateManager {
   public lastEconomyResults: Map<string, EconomyTickResult> = new Map();
   public battleLogs: BattleSimulationResult[] = [];
   public lastMoveReason: Map<string, string> = new Map();
+  public lastBattleReason: Map<string, string> = new Map();
 
   constructor(mapWidth: number = 32, mapHeight: number = 32) {
     this.worldMap = this.generateMap(mapWidth, mapHeight);
@@ -114,9 +118,9 @@ export class GameStateManager {
 
   private initNpcGarrisons() {
     const definitions = [
-      { id: 'npc_karakurum', name: 'Karakurum Garnizonu', x: 10, y: 6 },
-      { id: 'npc_demirboynuz', name: 'Demirboynuz Obası', x: 24, y: 14 },
-      { id: 'npc_kuzeyakinci', name: 'Kuzey Akıncı Kampı', x: 8, y: 22 },
+      { id: 'npc_karakurum', name: 'Karakurum Garnizonu', x: 10, y: 6, defenseLevel: 1 },
+      { id: 'npc_demirboynuz', name: 'Demirboynuz Obası', x: 24, y: 14, defenseLevel: 2 },
+      { id: 'npc_kuzeyakinci', name: 'Kuzey Akıncı Kampı', x: 8, y: 22, defenseLevel: 3 },
     ];
 
     this.npcCamps = definitions.map((def) => {
@@ -173,6 +177,7 @@ export class GameStateManager {
         name: def.name,
         gridX: gx,
         gridY: gy,
+        defenseLevel: def.defenseLevel,
         army: squad,
       };
     });
@@ -185,13 +190,9 @@ export class GameStateManager {
       return existing;
     }
 
-    const marginX = Math.floor(this.worldMap.width * 0.15);
-    const marginY = Math.floor(this.worldMap.height * 0.15);
-    const availableW = Math.max(1, this.worldMap.width - 2 * marginX);
-    const availableH = Math.max(1, this.worldMap.height - 2 * marginY);
-
-    let posX = marginX + Math.floor(Math.random() * availableW);
-    let posY = marginY + Math.floor(Math.random() * availableH);
+    const offsetIndex = this.players.size;
+    let posX = Math.min(this.worldMap.width - 2, Math.max(2, 10 + (offsetIndex % 4)));
+    let posY = Math.min(this.worldMap.height - 2, Math.max(4, 8 + (offsetIndex % 3)));
 
     // Nehir veya dağ üzerine denk gelirse bozkıra kaydır
     if (
@@ -461,21 +462,43 @@ export class GameStateManager {
 
     session.camp.army.morale = Math.max(75, session.camp.army.morale);
     for (const u of session.camp.army.units) {
-      u.currentHp = Math.max(u.currentHp, Math.ceil(u.maxHp * 0.65));
+      u.currentHp = Math.max(1, u.currentHp);
     }
 
-    // Hedef garnizon seçimi (koordinata en yakın NPC garnizonu veya varsayılan ilk garnizon)
+    // Hedef garnizon seçimi (koordinata en yakın NPC garnizonu veya oyuncuya en yakın fethedilmemiş garnizon)
     let targetNpc = this.npcCamps[0];
-    const refX = targetX !== undefined ? targetX : session.gridX;
-    const refY = targetY !== undefined ? targetY : session.gridY;
-
-    let minDist = Infinity;
-    for (const npc of this.npcCamps) {
-      const d = Math.hypot(npc.gridX - refX, npc.gridY - refY);
-      if (d < minDist) {
-        minDist = d;
-        targetNpc = npc;
+    if (targetX !== undefined && targetY !== undefined) {
+      let minDist = Infinity;
+      for (const npc of this.npcCamps) {
+        const d = Math.hypot(npc.gridX - targetX, npc.gridY - targetY);
+        if (d < minDist) {
+          minDist = d;
+          targetNpc = npc;
+        }
       }
+    } else {
+      const unconquered = this.npcCamps.filter((n) => n.conqueredBy !== userId);
+      const candidates = unconquered.length > 0 ? unconquered : this.npcCamps;
+      let minDist = Infinity;
+      for (const npc of candidates) {
+        const d = Math.hypot(npc.gridX - session.gridX, npc.gridY - session.gridY);
+        if (d < minDist) {
+          minDist = d;
+          targetNpc = npc;
+        }
+      }
+    }
+
+    const distToPlayer = Math.hypot(
+      targetNpc.gridX - session.gridX,
+      targetNpc.gridY - session.gridY
+    );
+    if (distToPlayer > MAX_ATTACK_DISTANCE) {
+      this.lastBattleReason.set(
+        userId,
+        `Hedef garnizon (${targetNpc.name}) çok uzakta (${distToPlayer.toFixed(1)} karo)! Önce obanızı hedefe yaklaştırın (Maks. Saldırı Menzili: ${MAX_ATTACK_DISTANCE} karo).`
+      );
+      return null;
     }
 
     const battleX = targetNpc.gridX;
@@ -545,7 +568,7 @@ export class GameStateManager {
       // Savaş yorgunluğu korunur (Toy ile iyileştirilebilir), tecrübe artar
       for (const unit of session.camp.army.units) {
         unit.experience += 25;
-        unit.currentHp = Math.max(Math.ceil(unit.maxHp * 0.35), unit.currentHp);
+        unit.currentHp = Math.max(1, unit.currentHp);
       }
       session.camp.army.morale = Math.min(100, Math.max(70, session.camp.army.morale));
     }
@@ -562,6 +585,9 @@ export class GameStateManager {
         0
       );
 
+    const conqueredCount = session.camp.conqueredGarrisons || 0;
+    this.lastBattleReason.delete(userId);
+
     return {
       ...simResult,
       targetName: targetNpc.name,
@@ -570,7 +596,8 @@ export class GameStateManager {
       feignedRetreatSuccess,
       ambushDamage,
       garrisonConquered,
-      conqueredCount: session.camp.conqueredGarrisons || 0,
+      conqueredCount,
+      isGreatKhaganVictory: conqueredCount >= 3,
       loot,
     };
   }
@@ -602,6 +629,7 @@ export class GameStateManager {
         gridX: p.gridX,
         gridY: p.gridY,
         isNpc: false,
+        defenseLevel: p.camp.otagLevel || 1,
         conqueredBy: undefined,
         conqueredByName: undefined,
         unitCount: p.camp.army.units.length,
@@ -614,9 +642,10 @@ export class GameStateManager {
       gridX: npc.gridX,
       gridY: npc.gridY,
       isNpc: true,
+      defenseLevel: npc.defenseLevel,
       conqueredBy: npc.conqueredBy,
       conqueredByName: npc.conqueredByName,
-      unitCount: npc.army.units.length,
+      unitCount: npc.army.units.length || 2,
     }));
 
     return {

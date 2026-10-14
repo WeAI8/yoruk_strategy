@@ -133,4 +133,34 @@ describe('Authoritative Server Testleri', () => {
     expect(session.camp.army.units[0].currentHp).toBe(session.camp.army.units[0].maxHp);
     expect(session.camp.army.morale).toBe(100);
   });
+
+  it('Menzil dışı (>10 karo) garnizon saldırısını engellemeli ve 3 garnizon fethedildiğinde Ulu Kağan zaferi döndürmelidir', () => {
+    const fullMapManager = new GameStateManager(32, 32);
+    const session = fullMapManager.registerPlayer('u9', 'Bilge_Tonyukuk', 'ws_9');
+
+    // Demirboynuz Obası (24, 14) başlangıç konumuna (10, 8) ~15.2 karo uzaklıktadır (> 10 karo)
+    const outOfRangeBattle = fullMapManager.executeTuranBattle('u9', 24, 14);
+    expect(outOfRangeBattle).toBeNull();
+    expect(fullMapManager.lastBattleReason.get('u9')).toContain('çok uzakta');
+
+    // 1. Garnizon: Karakurum (10, 6) -> Menzil içinde
+    const b1 = fullMapManager.executeTuranBattle('u9', 10, 6);
+    expect(b1?.garrisonConquered).toBe(true);
+    expect(b1?.isGreatKhaganVictory).toBe(false);
+
+    // 2. Garnizon: Demirboynuz (24, 14) -> Önce yakına göç et (20, 12), sonra fethet
+    session.camp.resources.food = 200;
+    session.camp.resources.horse = 50;
+    expect(fullMapManager.moveCamp('u9', 20, 12)).toBe(true);
+    const b2 = fullMapManager.executeTuranBattle('u9', 24, 14);
+    expect(b2?.garrisonConquered).toBe(true);
+    expect(b2?.conqueredCount).toBe(2);
+
+    // 3. Garnizon: Kuzey Akıncı (8, 22) -> Yakına göç et (10, 20), sonra fethet
+    expect(fullMapManager.moveCamp('u9', 10, 20)).toBe(true);
+    const b3 = fullMapManager.executeTuranBattle('u9', 8, 22);
+    expect(b3?.garrisonConquered).toBe(true);
+    expect(b3?.conqueredCount).toBe(3);
+    expect(b3?.isGreatKhaganVictory).toBe(true);
+  });
 });

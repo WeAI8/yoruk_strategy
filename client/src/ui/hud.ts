@@ -214,11 +214,25 @@ export class HudController {
 
       if (nearestNpc && minDist <= 2.5) {
         const isMine = nearestNpc.conqueredBy && nearestNpc.conqueredBy === snapshot.self?.userId;
+        const defLvl = nearestNpc.defenseLevel || 1;
+        const unitsCount = nearestNpc.unitCount || 2;
+        const distToSelf = snapshot.self
+          ? Math.hypot(nearestNpc.gridX - snapshot.self.gridX, nearestNpc.gridY - snapshot.self.gridY)
+          : 0;
+        const rangeStatus =
+          distToSelf <= 10
+            ? `${distToSelf.toFixed(1)} Karo — Saldırı Menzilinde`
+            : `${distToSelf.toFixed(1)} Karo — Menzil Dışı (>10 Karo)`;
+
         this.inspectorGarrison.textContent = isMine
-          ? `Garnizon: ${nearestNpc.name} [FETHEDİLDİ - Sancağımız Altında]`
-          : `Garnizon: ${nearestNpc.name} [Düşman Boyu - Turan Taktiği Hedefi]`;
+          ? `${nearestNpc.name} (Sv.${defLvl} | ${unitsCount} Birlik) [FETHEDİLDİ — Sancağımız Altında]`
+          : `${nearestNpc.name} (Sv.${defLvl} | ${unitsCount} Savunma) [${rangeStatus}]`;
       } else if (nearestNpc) {
-        this.inspectorGarrison.textContent = `En Yakın Hedef: ${nearestNpc.name} (${nearestNpc.gridX}, ${nearestNpc.gridY})`;
+        const distToSelf = snapshot.self
+          ? Math.hypot(nearestNpc.gridX - snapshot.self.gridX, nearestNpc.gridY - snapshot.self.gridY)
+          : 0;
+        const rangeLabel = distToSelf <= 10 ? 'Saldırı Menzilinde' : 'Önce Yaklaşın';
+        this.inspectorGarrison.textContent = `En Yakın Hedef: ${nearestNpc.name} (${nearestNpc.gridX}, ${nearestNpc.gridY}) [${distToSelf.toFixed(1)} Karo — ${rangeLabel}]`;
       } else {
         this.inspectorGarrison.textContent = 'Bölgede düşman garnizonu yok.';
       }
