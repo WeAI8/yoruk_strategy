@@ -1,8 +1,10 @@
 export interface SsoUser {
   userId: string;
+  user_id?: string;
   username: string;
   email: string;
   roles: string[];
+  valid?: boolean;
 }
 
 export interface TicketExchangeConfig {
@@ -15,13 +17,16 @@ export async function exchangeTicket(
   ticket: string,
   config: TicketExchangeConfig
 ): Promise<SsoUser | null> {
-  // Test/Development amacıyla mock ticket desteği (Örn: dev_ticket_123 veya test_...)
-  if (process.env.NODE_ENV !== 'production' && ticket.startsWith('dev_')) {
+  // Test/Development ve Hızlı Demo amacıyla dev_ bilet desteği
+  const allowDevTickets = process.env.ALLOW_DEV_TICKETS !== 'false';
+  if ((process.env.NODE_ENV !== 'production' || allowDevTickets) && ticket.startsWith('dev_')) {
+    const cleanId = ticket.replace('dev_', '');
     return {
-      userId: `user-${ticket.replace('dev_', '')}`,
+      userId: `user-${cleanId}`,
       username: `Kürşat_${ticket.slice(4, 9)}`,
       email: 'dev@yorukgames.com',
       roles: ['ROLE_USER'],
+      valid: true,
     };
   }
 
@@ -35,6 +40,8 @@ export async function exchangeTicket(
         ticket,
         clientId: config.clientId,
         clientSecret: config.clientSecret,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
       }),
     });
 
@@ -44,7 +51,18 @@ export async function exchangeTicket(
     }
 
     const data = (await response.json()) as SsoUser;
-    return data;
+    const resolvedUserId = data.userId || data.user_id;
+    if (!resolvedUserId || data.valid === false) {
+      return null;
+    }
+
+    return {
+      userId: resolvedUserId,
+      username: data.username,
+      email: data.email,
+      roles: data.roles || ['ROLE_USER'],
+      valid: true,
+    };
   } catch (err) {
     console.error('[SSO] Platform authentication request error:', err);
     return null;

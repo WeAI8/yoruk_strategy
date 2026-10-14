@@ -1,45 +1,57 @@
-version: '3.8'
-
 services:
   game-db:
     image: postgres:16-alpine
     container_name: yoruk_strategy_db
+    restart: always
     environment:
-      POSTGRES_DB: yoruk_strategy_db
-      POSTGRES_USER: strategy_admin
-      POSTGRES_PASSWORD: strategy_secret_password
-    ports:
-      - "5433:5432"
+      POSTGRES_DB: ${STRATEGY_DB_NAME:-yoruk_strategy_db}
+      POSTGRES_USER: ${STRATEGY_DB_USER:-strategy_admin}
+      POSTGRES_PASSWORD: ${STRATEGY_DB_PASSWORD:-strategy_secret_password}
     volumes:
       - strategy_db_data:/var/lib/postgresql/data
     networks:
       - yoruk_strategy_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${STRATEGY_DB_USER:-strategy_admin} -d ${STRATEGY_DB_NAME:-yoruk_strategy_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   game-redis:
     image: redis:7-alpine
     container_name: yoruk_strategy_redis
-    ports:
-      - "6380:6379"
+    restart: always
     networks:
       - yoruk_strategy_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   game-server:
     build:
       context: .
       dockerfile: server/Dockerfile
     container_name: yoruk_strategy_server
+    restart: always
     ports:
-      - "8081:8081"
+      - "127.0.0.1:${GAME_SERVER_PORT:-8081}:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: 8081
-      DATABASE_URL: postgres://strategy_admin:strategy_secret_password@game-db:5432/yoruk_strategy_db
+      DATABASE_URL: postgres://${STRATEGY_DB_USER:-strategy_admin}:${STRATEGY_DB_PASSWORD:-strategy_secret_password}@game-db:5432/${STRATEGY_DB_NAME:-yoruk_strategy_db}
       REDIS_URL: redis://game-redis:6379
-      PLATFORM_AUTH_URL: http://backend:8080/api/v1/auth/exchange-ticket
-      CLIENT_ID: game-client-strategy-01
-      CLIENT_SECRET: yoruk_strategy_secret_key
+      PLATFORM_AUTH_URL: ${PLATFORM_AUTH_URL:-http://host.docker.internal:8080/api/v1/auth/exchange-ticket}
+      CLIENT_ID: ${CLIENT_ID:-game-client-strategy-01}
+      CLIENT_SECRET: ${CLIENT_SECRET:-yoruk_strategy_secret_key}
+      ALLOW_DEV_TICKETS: ${ALLOW_DEV_TICKETS:-true}
     depends_on:
-      - game-db
-      - game-redis
+      game-db:
+        condition: service_healthy
+      game-redis:
+        condition: service_healthy
     networks:
       - yoruk_strategy_net
 
@@ -48,8 +60,9 @@ services:
       context: .
       dockerfile: client/Dockerfile
     container_name: yoruk_strategy_client
+    restart: always
     ports:
-      - "3001:80"
+      - "127.0.0.1:${GAME_CLIENT_PORT:-3001}:80"
     depends_on:
       - game-server
     networks:

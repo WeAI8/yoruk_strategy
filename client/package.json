@@ -10,7 +10,7 @@
     "preview": "vite preview --port 3001"
   },
   "dependencies": {
-    "@yorukgames/game-sdk": "file:../../yoruk_games/sdk/yoruk-game-sdk",
+    "@yorukgames/game-sdk": "*",
     "@yorukstrategy/core": "*",
     "pixi.js": "^8.6.6"
   },

@@ -4,9 +4,11 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY packages/core ./packages/core
+COPY packages/game-sdk ./packages/game-sdk
 COPY client ./client
 
 RUN npm install
+RUN npm run build --workspace=@yorukgames/game-sdk
 RUN npm run build --workspace=@yorukstrategy/core
 RUN npm run build --workspace=@yorukstrategy/client
 

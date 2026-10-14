@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
   SeasonType,
-  SEASON_CONFIG,
   getSeasonFromTick,
   getNextSeason,
   calculateHorseBreeding,
   calculateFoodConsumption,
   applyWinterFrostbite,
   processEconomyTick,
+  upgradeOtagState,
+  holdFeastState,
   CampState,
   INITIAL_RESOURCES,
+  UnitType,
 } from '../src/index.js';
 
 describe('Ekonomi & Mevsim Döngüsü Simülasyon Testleri', () => {
@@ -89,5 +91,74 @@ describe('Ekonomi & Mevsim Döngüsü Simülasyon Testleri', () => {
     expect(result.hasFamine).toBe(true);
     expect(result.finalResources.food).toBe(0);
     expect(testCamp.army.morale).toBeLessThan(80);
+  });
+
+  it('Otağ yükseltme (upgradeOtagState) kaynakları düşmeli, seviye, çadır ve nüfusu artırmalıdır', () => {
+    const camp: CampState = {
+      id: 'camp_up',
+      name: 'Ötüken Otağı',
+      ownerId: 'p_up',
+      population: 120,
+      tents: 15,
+      otagLevel: 1,
+      conqueredGarrisons: 1,
+      horsesInPasture: 40,
+      basePastureQuality: 1.0,
+      isInWinterCamp: true,
+      isInSummerCamp: false,
+      resources: { ...INITIAL_RESOURCES, gold: 150, leather: 100, iron: 60 },
+      army: { ownerId: 'p_up', squadId: 'sq_up', morale: 90, units: [] },
+    };
+
+    const res = upgradeOtagState(camp);
+    expect(res.success).toBe(true);
+    expect(res.newLevel).toBe(2);
+    expect(camp.otagLevel).toBe(2);
+    expect(camp.tents).toBe(20);
+    expect(camp.population).toBe(160);
+
+    const tickRes = processEconomyTick(camp, 100);
+    expect(tickRes.tributeGold).toBe(5);
+    expect(tickRes.tributeIron).toBe(4);
+    expect(tickRes.tributeFood).toBe(6);
+  });
+
+  it('Kurultay Toyu (holdFeastState) yaralı askerleri iyileştirmeli ve morali 100 yapmalıdır', () => {
+    const camp: CampState = {
+      id: 'camp_feast',
+      name: 'Toy Otağı',
+      ownerId: 'p_feast',
+      population: 120,
+      tents: 15,
+      horsesInPasture: 40,
+      basePastureQuality: 1.0,
+      isInWinterCamp: true,
+      isInSummerCamp: false,
+      resources: { ...INITIAL_RESOURCES, gold: 100, food: 100 },
+      army: {
+        ownerId: 'p_feast',
+        squadId: 'sq_feast',
+        morale: 65,
+        units: [
+          {
+            id: 'u_wounded',
+            type: UnitType.ALP,
+            currentHp: 35,
+            maxHp: 100,
+            attack: 48,
+            armor: 28,
+            range: 1,
+            speed: 7,
+            experience: 20,
+          },
+        ],
+      },
+    };
+
+    const feast = holdFeastState(camp);
+    expect(feast.success).toBe(true);
+    expect(feast.healedUnits).toBe(1);
+    expect(camp.army.units[0].currentHp).toBe(100);
+    expect(camp.army.morale).toBe(100);
   });
 });

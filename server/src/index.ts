@@ -20,7 +20,6 @@ const gameLoop = new GameLoop(stateManager);
 
 // 2. HTTP Server (Sağlık kontrolü ve metrikler)
 const server = http.createServer((req, res) => {
-  // CORS başlıkları
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -56,7 +55,9 @@ wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
   const ticket = url.searchParams.get('ticket');
 
-  console.log(`[WS] Connection attempt from ${req.socket.remoteAddress}, ticket=${ticket?.slice(0, 10)}...`);
+  console.log(
+    `[WS] Connection attempt from ${req.socket.remoteAddress}, ticket=${ticket?.slice(0, 10)}...`
+  );
 
   // Plan 02: Zero-Login & SSO Ticket Doğrulaması
   if (!ticket) {
@@ -81,7 +82,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // Oyuncuyu durum yöneticisine kaydet
   const wsSessionId = Math.random().toString(36).substring(2);
-  const session = stateManager.registerPlayer(ssoUser.userId, ssoUser.username, wsSessionId);
+  stateManager.registerPlayer(ssoUser.userId, ssoUser.username, wsSessionId);
   gameLoop.registerClient(ssoUser.userId, ws);
 
   // İlk bağlantı el sıkışması ve hoş geldin paketi
@@ -109,6 +110,15 @@ wss.on('connection', async (ws: WebSocket, req) => {
   });
 });
 
+function sendImmediateSnapshot(userId: string, ws: WebSocket) {
+  ws.send(
+    JSON.stringify({
+      type: 'GAME_TICK',
+      payload: stateManager.getSnapshotForPlayer(userId),
+    })
+  );
+}
+
 function handlePlayerMessage(userId: string, message: any, ws: WebSocket) {
   switch (message.type) {
     case 'TRAIN_UNIT': {
@@ -121,20 +131,24 @@ function handlePlayerMessage(userId: string, message: any, ws: WebSocket) {
           unitType,
         })
       );
+      sendImmediateSnapshot(userId, ws);
       break;
     }
 
     case 'MOVE_CAMP': {
       const { x, y } = message;
       const success = stateManager.moveCamp(userId, x, y);
+      const reason = stateManager.lastMoveReason.get(userId);
       ws.send(
         JSON.stringify({
           type: 'MOVE_RESULT',
           success,
           x,
           y,
+          reason,
         })
       );
+      sendImmediateSnapshot(userId, ws);
       break;
     }
 
@@ -147,6 +161,32 @@ function handlePlayerMessage(userId: string, message: any, ws: WebSocket) {
           payload: battleResult,
         })
       );
+      sendImmediateSnapshot(userId, ws);
+      break;
+    }
+
+    case 'UPGRADE_CAMP':
+    case 'UPGRADE_OTAG': {
+      const upgradeResult = stateManager.upgradeOtag(userId);
+      ws.send(
+        JSON.stringify({
+          type: 'UPGRADE_OTAG_RESULT',
+          ...upgradeResult,
+        })
+      );
+      sendImmediateSnapshot(userId, ws);
+      break;
+    }
+
+    case 'HOLD_FEAST': {
+      const feastResult = stateManager.holdFeast(userId);
+      ws.send(
+        JSON.stringify({
+          type: 'FEAST_RESULT',
+          ...feastResult,
+        })
+      );
+      sendImmediateSnapshot(userId, ws);
       break;
     }
 

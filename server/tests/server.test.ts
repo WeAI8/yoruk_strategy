@@ -36,6 +36,7 @@ describe('Authoritative Server Testleri', () => {
     expect(session.username).toBe('Bumin_Kagan');
     expect(session.camp.army.units.length).toBe(2); // 1 Akıncı, 1 Alp
     expect(session.camp.resources.horse).toBeGreaterThan(0);
+    expect(session.camp.otagLevel).toBe(1);
   });
 
   it('Asker eğitimi kaynak kontrolü yapıp orduya yeni asker eklemelidir', () => {
@@ -46,10 +47,12 @@ describe('Authoritative Server Testleri', () => {
     const trained = stateManager.trainUnit('u2', UnitType.AKINCI);
     expect(trained).toBe(true);
     expect(session.camp.army.units.length).toBe(initialUnitCount + 1);
-    expect(session.camp.resources.horse).toBe(initialHorses - UNIT_TEMPLATES[UnitType.AKINCI].cost.horse!);
+    expect(session.camp.resources.horse).toBe(
+      initialHorses - UNIT_TEMPLATES[UnitType.AKINCI].cost.horse!
+    );
   });
 
-  it('Oba göçü (moveCamp) pozisyonu ve yaylak/kışlak durumunu güncellemelidir', () => {
+  it('Oba göçü (moveCamp) pozisyonu, iaşe maliyetini ve yaylak/kışlak durumunu güncellemelidir', () => {
     const session = stateManager.registerPlayer('u3', 'Bilge_Kagan', 'ws_3');
     // Yaylak arazisi (y: 5, x: 2)
     const moved = stateManager.moveCamp('u3', 2, 5);
@@ -86,7 +89,7 @@ describe('Authoritative Server Testleri', () => {
     expect(snapshot.otherCamps.some((c) => c.name === 'Kuzey Akıncı Kampı')).toBe(true);
   });
 
-  it('executeTuranBattle gerçek Turan Taktiğini çalıştırmalı, ganimet ve deneyim kazandırmalıdır', () => {
+  it('executeTuranBattle gerçek Turan Taktiğini çalıştırmalı, garnizonu fethetmeli ve ganimet kazandırmalıdır', () => {
     const fullMapManager = new GameStateManager(32, 32);
     const session = fullMapManager.registerPlayer('u7', 'Mete_Han', 'ws_7');
     const initialGold = session.camp.resources.gold;
@@ -98,8 +101,36 @@ describe('Authoritative Server Testleri', () => {
     expect(result?.turanTacticExecuted).toBe(true);
     expect(result?.feignedRetreatSuccess).toBe(true);
     expect(result?.ambushDamage).toBeGreaterThan(0);
+    expect(result?.garrisonConquered).toBe(true);
+    expect(result?.conqueredCount).toBe(1);
     expect(session.camp.resources.gold).toBe(initialGold + 45);
     expect(session.camp.resources.horse).toBe(initialHorse + 15);
     expect(session.camp.army.units[0].experience).toBeGreaterThanOrEqual(25);
+  });
+
+  it('upgradeOtag ve holdFeast sunucu aksiyonları otağ seviyesini ve ordu sağlığını güncellemelidir', () => {
+    const fullMapManager = new GameStateManager(32, 32);
+    const session = fullMapManager.registerPlayer('u8', 'Alparslan', 'ws_8');
+
+    // Kaynak takviyesi
+    session.camp.resources.gold = 200;
+    session.camp.resources.leather = 120;
+    session.camp.resources.iron = 80;
+    session.camp.resources.food = 150;
+
+    // Otağ yükseltme
+    const upg = fullMapManager.upgradeOtag('u8');
+    expect(upg.success).toBe(true);
+    expect(upg.newLevel).toBe(2);
+    expect(session.camp.otagLevel).toBe(2);
+
+    // Birimi yarala ve Toy düzenle
+    session.camp.army.units[0].currentHp = 20;
+    session.camp.army.morale = 60;
+    const feast = fullMapManager.holdFeast('u8');
+    expect(feast.success).toBe(true);
+    expect(feast.healedUnits).toBe(1);
+    expect(session.camp.army.units[0].currentHp).toBe(session.camp.army.units[0].maxHp);
+    expect(session.camp.army.morale).toBe(100);
   });
 });

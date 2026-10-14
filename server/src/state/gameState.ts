@@ -9,6 +9,9 @@ import {
   EconomyTickResult,
   simulateBattle,
   BattleSimulationResult,
+  upgradeOtagState,
+  holdFeastState,
+  getOtagUpgradeCost,
 } from '@yorukstrategy/core';
 
 export interface PlayerSession {
@@ -43,6 +46,8 @@ export interface NpcGarrison {
   gridX: number;
   gridY: number;
   army: ArmySquad;
+  conqueredBy?: string;
+  conqueredByName?: string;
 }
 
 export interface TuranBattleExecutionResult extends BattleSimulationResult {
@@ -51,6 +56,8 @@ export interface TuranBattleExecutionResult extends BattleSimulationResult {
   targetY: number;
   feignedRetreatSuccess: boolean;
   ambushDamage: number;
+  garrisonConquered: boolean;
+  conqueredCount: number;
   loot: {
     gold: number;
     horse: number;
@@ -59,6 +66,10 @@ export interface TuranBattleExecutionResult extends BattleSimulationResult {
   };
 }
 
+export const MAX_MIGRATION_DISTANCE = 14;
+export const MIGRATION_FOOD_COST = 10;
+export const MIGRATION_HORSE_COST = 1;
+
 export class GameStateManager {
   public currentTick: number = 0;
   public players: Map<string, PlayerSession> = new Map();
@@ -66,6 +77,7 @@ export class GameStateManager {
   public worldMap: WorldMap;
   public lastEconomyResults: Map<string, EconomyTickResult> = new Map();
   public battleLogs: BattleSimulationResult[] = [];
+  public lastMoveReason: Map<string, string> = new Map();
 
   constructor(mapWidth: number = 32, mapHeight: number = 32) {
     this.worldMap = this.generateMap(mapWidth, mapHeight);
@@ -181,6 +193,17 @@ export class GameStateManager {
     let posX = marginX + Math.floor(Math.random() * availableW);
     let posY = marginY + Math.floor(Math.random() * availableH);
 
+    // Nehir veya dağ üzerine denk gelirse bozkıra kaydır
+    if (
+      this.worldMap.tiles[posY] &&
+      this.worldMap.tiles[posY][posX] &&
+      (this.worldMap.tiles[posY][posX].terrain === 'RIVER' ||
+        this.worldMap.tiles[posY][posX].terrain === 'MOUNTAIN')
+    ) {
+      posX = Math.min(this.worldMap.width - 2, posX + 1);
+      posY = Math.max(4, posY);
+    }
+
     const initialSquad: ArmySquad = {
       ownerId: userId,
       squadId: `squad_${userId}`,
@@ -211,16 +234,20 @@ export class GameStateManager {
       ],
     };
 
+    const startTerrain = this.worldMap.tiles[posY]?.[posX]?.terrain || 'STEPPE';
+
     const camp: CampState = {
       id: `camp_${userId}`,
       name: `${username} Otağı`,
       ownerId: userId,
       population: 120,
       tents: 15,
+      otagLevel: 1,
+      conqueredGarrisons: 0,
       horsesInPasture: 40,
       basePastureQuality: 1.0,
-      isInWinterCamp: false,
-      isInSummerCamp: false,
+      isInWinterCamp: startTerrain === 'WINTER_CAMP',
+      isInSummerCamp: startTerrain === 'SUMMER_PASTURE',
       resources: { ...INITIAL_RESOURCES },
       army: initialSquad,
     };
@@ -243,9 +270,8 @@ export class GameStateManager {
   }
 
   public removePlayerSession(wsSessionId: string) {
-    for (const [userId, session] of this.players.entries()) {
+    for (const [, session] of this.players.entries()) {
       if (session.wsSessionId === wsSessionId) {
-        // Oturumu kopmuş sayabiliriz, oba kalıcı kalır
         break;
       }
     }
@@ -269,7 +295,9 @@ export class GameStateManager {
     // Kaynakları düş
     for (const [resKey, amount] of Object.entries(template.cost)) {
       const key = resKey as keyof typeof session.camp.resources;
-      session.camp.resources[key] -= amount || 0;
+      session.camp.resources[key] = Number(
+        (session.camp.resources[key] - (amount || 0)).toFixed(2)
+      );
     }
 
     // Birimi orduya ekle
@@ -289,6 +317,36 @@ export class GameStateManager {
     return true;
   }
 
+  public upgradeOtag(userId: string): {
+    success: boolean;
+    newLevel: number;
+    reason?: string;
+  } {
+    const session = this.players.get(userId);
+    if (!session) {
+      return { success: false, newLevel: 1, reason: 'Oyuncu oturumu bulunamadı.' };
+    }
+    return upgradeOtagState(session.camp);
+  }
+
+  public holdFeast(userId: string): {
+    success: boolean;
+    healedUnits: number;
+    moraleRestored: number;
+    reason?: string;
+  } {
+    const session = this.players.get(userId);
+    if (!session) {
+      return {
+        success: false,
+        healedUnits: 0,
+        moraleRestored: 0,
+        reason: 'Oyuncu oturumu bulunamadı.',
+      };
+    }
+    return holdFeastState(session.camp);
+  }
+
   public moveCamp(userId: string, targetX: number, targetY: number): boolean {
     const session = this.players.get(userId);
     if (!session) return false;
@@ -299,17 +357,47 @@ export class GameStateManager {
       targetY < 0 ||
       targetY >= this.worldMap.height
     ) {
+      this.lastMoveReason.set(userId, 'Harita sınırları dışına göç edilemez.');
       return false;
     }
 
     const targetTile = this.worldMap.tiles[targetY][targetX];
     if (targetTile.terrain === 'MOUNTAIN' || targetTile.terrain === 'RIVER') {
-      return false; // Dağ ve nehire oba kurulamaz
+      this.lastMoveReason.set(userId, 'Dağ zirvelerine ve nehir yataklarına otağ kurulamaz!');
+      return false;
     }
+
+    const dist = Math.hypot(targetX - session.gridX, targetY - session.gridY);
+    if (dist > MAX_MIGRATION_DISTANCE) {
+      this.lastMoveReason.set(
+        userId,
+        `Göç menzili aşıldı (${dist.toFixed(1)} karo)! Tek seferde en fazla ${MAX_MIGRATION_DISTANCE} karo uzağa göç edilebilir.`
+      );
+      return false;
+    }
+
+    if (
+      session.camp.resources.food < MIGRATION_FOOD_COST ||
+      session.camp.resources.horse < MIGRATION_HORSE_COST
+    ) {
+      this.lastMoveReason.set(
+        userId,
+        `Göç kervanı için en az ${MIGRATION_FOOD_COST} Aş ve ${MIGRATION_HORSE_COST} At gereklidir!`
+      );
+      return false;
+    }
+
+    // Göç iaşe maliyetini düş
+    session.camp.resources.food = Number(
+      (session.camp.resources.food - MIGRATION_FOOD_COST).toFixed(2)
+    );
+    session.camp.resources.horse = Math.max(0, session.camp.resources.horse - MIGRATION_HORSE_COST);
 
     // Eski kiremiti temizle
     const oldTile = this.worldMap.tiles[session.gridY][session.gridX];
-    oldTile.campId = undefined;
+    if (oldTile.campId === session.camp.id) {
+      oldTile.campId = undefined;
+    }
 
     // Yeni pozisyon
     session.gridX = targetX;
@@ -319,6 +407,18 @@ export class GameStateManager {
     // Kışlak / Yaylak kontrolü
     session.camp.isInSummerCamp = targetTile.terrain === 'SUMMER_PASTURE';
     session.camp.isInWinterCamp = targetTile.terrain === 'WINTER_CAMP';
+
+    const terrainLabel =
+      targetTile.terrain === 'SUMMER_PASTURE'
+        ? 'Yaylak (+At Üremesi & Otlak Bereketi)'
+        : targetTile.terrain === 'WINTER_CAMP'
+          ? 'Kışlak (Zemheri Soğuk Koruması)'
+          : 'Bozkır Düzlüğü';
+
+    this.lastMoveReason.set(
+      userId,
+      `Otağ (${targetX}, ${targetY}) konumundaki ${terrainLabel} bölgesine göç etti (-${MIGRATION_FOOD_COST} Aş, -${MIGRATION_HORSE_COST} At).`
+    );
 
     return true;
   }
@@ -359,9 +459,9 @@ export class GameStateManager {
       );
     }
 
-    session.camp.army.morale = 100;
+    session.camp.army.morale = Math.max(75, session.camp.army.morale);
     for (const u of session.camp.army.units) {
-      u.currentHp = Math.max(u.currentHp, Math.ceil(u.maxHp * 0.8));
+      u.currentHp = Math.max(u.currentHp, Math.ceil(u.maxHp * 0.65));
     }
 
     // Hedef garnizon seçimi (koordinata en yakın NPC garnizonu veya varsayılan ilk garnizon)
@@ -378,8 +478,8 @@ export class GameStateManager {
       }
     }
 
-    const battleX = targetX !== undefined ? targetX : targetNpc.gridX;
-    const battleY = targetY !== undefined ? targetY : targetNpc.gridY;
+    const battleX = targetNpc.gridX;
+    const battleY = targetNpc.gridY;
 
     // Sahte Ricat (Tur 2) ve Hilal Kapanı (Tur 3) tetiklenmesi için dinamik düşman garnizonu
     const totalPlayerAttack = session.camp.army.units.reduce((sum, u) => sum + u.attack, 0);
@@ -419,6 +519,8 @@ export class GameStateManager {
     this.battleLogs.push(simResult);
 
     const loot = { gold: 0, horse: 0, iron: 0, food: 0 };
+    let garrisonConquered = false;
+
     if (simResult.winner === 'SIDE_A') {
       loot.gold = 45;
       loot.horse = 15;
@@ -430,11 +532,22 @@ export class GameStateManager {
       session.camp.resources.iron += loot.iron;
       session.camp.resources.food += loot.food;
 
+      // Garnizonu oyuncunun sancağı altına al (Fetih)
+      targetNpc.conqueredBy = userId;
+      targetNpc.conqueredByName = session.username;
+      targetNpc.army.units = enemySquad.units;
+      garrisonConquered = true;
+
+      session.camp.conqueredGarrisons = this.npcCamps.filter(
+        (npc) => npc.conqueredBy === userId
+      ).length;
+
+      // Savaş yorgunluğu korunur (Toy ile iyileştirilebilir), tecrübe artar
       for (const unit of session.camp.army.units) {
         unit.experience += 25;
-        unit.currentHp = unit.maxHp;
+        unit.currentHp = Math.max(Math.ceil(unit.maxHp * 0.35), unit.currentHp);
       }
-      session.camp.army.morale = 100;
+      session.camp.army.morale = Math.min(100, Math.max(70, session.camp.army.morale));
     }
 
     const feignedRetreatSuccess = simResult.rounds.some((r) => r.phase === 'FEIGNED_RETREAT');
@@ -456,6 +569,8 @@ export class GameStateManager {
       targetY: battleY,
       feignedRetreatSuccess,
       ambushDamage,
+      garrisonConquered,
+      conqueredCount: session.camp.conqueredGarrisons || 0,
       loot,
     };
   }
@@ -466,6 +581,9 @@ export class GameStateManager {
     // Her 10 tick'te bir (1 saniyede bir) ekonomi hesaplamalarını güncelle
     if (this.currentTick % 10 === 0) {
       for (const session of this.players.values()) {
+        session.camp.conqueredGarrisons = this.npcCamps.filter(
+          (npc) => npc.conqueredBy === session.userId
+        ).length;
         const result = processEconomyTick(session.camp, this.currentTick);
         this.lastEconomyResults.set(session.userId, result);
       }
@@ -484,16 +602,20 @@ export class GameStateManager {
         gridX: p.gridX,
         gridY: p.gridY,
         isNpc: false,
+        conqueredBy: undefined,
+        conqueredByName: undefined,
         unitCount: p.camp.army.units.length,
       }));
 
     const npcList = this.npcCamps.map((npc) => ({
       id: npc.id,
       name: npc.name,
-      ownerName: npc.name,
+      ownerName: npc.conqueredByName ? `${npc.name} (${npc.conqueredByName})` : npc.name,
       gridX: npc.gridX,
       gridY: npc.gridY,
       isNpc: true,
+      conqueredBy: npc.conqueredBy,
+      conqueredByName: npc.conqueredByName,
       unitCount: npc.army.units.length,
     }));
 
@@ -503,7 +625,10 @@ export class GameStateManager {
         ? {
             userId: session.userId,
             username: session.username,
-            camp: session.camp,
+            camp: {
+              ...session.camp,
+              nextUpgradeCost: getOtagUpgradeCost(session.camp.otagLevel || 1),
+            },
             gridX: session.gridX,
             gridY: session.gridY,
           }

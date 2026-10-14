@@ -1,0 +1,23 @@
+{
+  "name": "@yorukgames/game-sdk",
+  "version": "1.0.0",
+  "description": "Yoruk Games Official Game Client Integration SDK for Single Sign-On (SSO) ticket handoff",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "yoruk-games",
+    "sso",
+    "gaming",
+    "sdk",
+    "ticket-exchange"
+  ],
+  "author": "Yoruk Games Studio",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

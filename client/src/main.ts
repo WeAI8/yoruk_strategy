@@ -23,9 +23,15 @@ window.addEventListener('DOMContentLoaded', () => {
     onTrain: (unitType: UnitType) => {
       network.trainUnit(unitType);
     },
+    onUpgradeOtag: () => {
+      network.upgradeOtag();
+    },
+    onHoldFeast: () => {
+      network.holdFeast();
+    },
     onMigrate: () => {
       if (!engine.selectedTile) {
-        hud.addLogMessage('Lütfen haritada göç etmek istediğiniz bir kiremit seçin!', true);
+        hud.addLogMessage('Lütfen haritada göç etmek istediğiniz bir karo seçin!', true);
         return;
       }
       network.moveCamp(engine.selectedTile.x, engine.selectedTile.y);
@@ -40,6 +46,11 @@ window.addEventListener('DOMContentLoaded', () => {
       network.executeTuran(targetX, targetY);
     },
   });
+
+  // Haritada karo seçildiğinde sol-alt Karo ve Garnizon Denetçisini güncelle
+  engine.onTileSelected = (tile) => {
+    hud.updateTileInspector(tile, latestSnapshot);
+  };
 
   network.connect(
     (snapshot: GameSnapshot) => {
@@ -59,6 +70,10 @@ window.addEventListener('DOMContentLoaded', () => {
       if (snapshot.lastEconomy) {
         hud.updateSeason(snapshot.lastEconomy.season);
       }
+
+      if (engine.selectedTile) {
+        hud.updateTileInspector(engine.selectedTile, snapshot);
+      }
     },
     (logMsg: any) => {
       hud.addLogMessage(logMsg.text, !!logMsg.isAlert);
@@ -75,25 +90,31 @@ window.addEventListener('DOMContentLoaded', () => {
   function gameLoop() {
     if (latestSnapshot && latestSnapshot.worldMap) {
       const entities: RenderableEntity[] = [];
+      const selfUserId = latestSnapshot.self?.userId;
 
       // Rakip Boy Garnizonları ve diğer oyuncu obaları
       if (latestSnapshot.otherCamps) {
         for (const rival of latestSnapshot.otherCamps) {
+          const isConqueredBySelf =
+            !!rival.conqueredBy && !!selfUserId && rival.conqueredBy === selfUserId;
+
           entities.push({
             id: rival.id,
             x: rival.gridX,
             y: rival.gridY,
             type: 'CAMP',
-            ownerName: rival.name,
+            ownerName: isConqueredBySelf ? `${rival.name} [Fethedildi]` : rival.name,
             isSelf: false,
+            isConquered: isConqueredBySelf,
           });
+
           // Garnizon muhafız birliği
           entities.push({
             id: `${rival.id}_guard`,
             x: rival.gridX + 1,
             y: rival.gridY,
             type: 'CERI',
-            isSelf: false,
+            isSelf: isConqueredBySelf,
             hp: 100,
             maxHp: 100,
           });
@@ -107,7 +128,7 @@ window.addEventListener('DOMContentLoaded', () => {
           x: latestSnapshot.self.gridX,
           y: latestSnapshot.self.gridY,
           type: 'CAMP',
-          ownerName: latestSnapshot.self.username,
+          ownerName: `${latestSnapshot.self.username} (Sv.${latestSnapshot.self.camp?.otagLevel || 1})`,
           isSelf: true,
         });
 

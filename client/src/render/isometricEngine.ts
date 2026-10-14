@@ -12,6 +12,7 @@ export interface RenderableEntity {
   type: 'CAMP' | 'AKINCI' | 'ALP' | 'CERI' | 'ALPAGUT' | 'HORSE_HERD';
   ownerName?: string;
   isSelf?: boolean;
+  isConquered?: boolean;
   hp?: number;
   maxHp?: number;
 }
@@ -32,6 +33,7 @@ export class IsometricEngine {
   public zoom: number = 1.0;
   private hoveredTile: { x: number; y: number } | null = null;
   public selectedTile: { x: number; y: number } | null = null;
+  public onTileSelected?: (tile: { x: number; y: number }) => void;
   private battleEffects: BattleEffect[] = [];
 
   public fps: number = 60;
@@ -77,6 +79,9 @@ export class IsometricEngine {
         const tile = this.screenToGrid(e.clientX, e.clientY);
         if (this.isValidTile(tile.x, tile.y)) {
           this.selectedTile = tile;
+          if (this.onTileSelected) {
+            this.onTileSelected(tile);
+          }
         }
       } else if (e.button === 2 || e.button === 1) {
         isDragging = true;
@@ -109,7 +114,6 @@ export class IsometricEngine {
         e.preventDefault();
         const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
         const nextZoom = Math.min(1.8, Math.max(0.6, this.zoom * zoomFactor));
-        // Fare imleci merkezli yakınlaştırma
         const mouseX = e.clientX;
         const mouseY = e.clientY;
         this.cameraX = mouseX - ((mouseX - this.cameraX) * nextZoom) / this.zoom;
@@ -196,8 +200,8 @@ export class IsometricEngine {
         if (playerCampPos) {
           dist = Math.hypot(x - playerCampPos.x, y - playerCampPos.y);
         }
-        const isVisible = dist <= 11.5 || !!tileData?.hasCamp;
-        const isExplored = dist <= 18;
+        const isVisible = dist <= 12.5 || !!tileData?.hasCamp;
+        const isExplored = dist <= 20;
 
         ctx.beginPath();
         ctx.moveTo(sx, sy - halfH);
@@ -246,7 +250,7 @@ export class IsometricEngine {
           ctx.lineTo(sx - halfW, sy);
           ctx.closePath();
           ctx.strokeStyle = '#ecc94b';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2.2;
           ctx.stroke();
         }
       }
@@ -264,7 +268,14 @@ export class IsometricEngine {
       const { x: sx, y: sy } = this.gridToScreen(entity.x, entity.y);
 
       if (entity.type === 'CAMP') {
-        this.drawOtag(ctx, sx, sy, entity.isSelf || false, entity.ownerName);
+        this.drawOtag(
+          ctx,
+          sx,
+          sy,
+          entity.isSelf || false,
+          entity.ownerName,
+          entity.isConquered || false
+        );
         this.drawCalls++;
       } else {
         this.drawUnit(
@@ -297,9 +308,7 @@ export class IsometricEngine {
   ) {
     const z = this.zoom;
     if (terrain === 'MOUNTAIN') {
-      // İzometrik 3B Piramit Dağ Tepesi + Karlı Zirve
       const peakH = 22 * z;
-      // Sol yamacı
       ctx.beginPath();
       ctx.moveTo(sx, sy - peakH);
       ctx.lineTo(sx - halfW * 0.75, sy + halfH * 0.15);
@@ -308,7 +317,6 @@ export class IsometricEngine {
       ctx.fillStyle = '#4a5568';
       ctx.fill();
 
-      // Sağ gölgeli yamacı
       ctx.beginPath();
       ctx.moveTo(sx, sy - peakH);
       ctx.lineTo(sx + halfW * 0.75, sy + halfH * 0.15);
@@ -317,7 +325,6 @@ export class IsometricEngine {
       ctx.fillStyle = '#2d3748';
       ctx.fill();
 
-      // Karlı Zirve
       ctx.beginPath();
       ctx.moveTo(sx, sy - peakH);
       ctx.lineTo(sx - halfW * 0.28, sy - peakH * 0.35);
@@ -327,7 +334,6 @@ export class IsometricEngine {
       ctx.fillStyle = '#e2e8f0';
       ctx.fill();
     } else if (terrain === 'RIVER') {
-      // Animasyonlu nehir dalga çizgisi
       const waveOffset = Math.sin(now * 0.004 + gridY * 0.8) * 3 * z;
       ctx.beginPath();
       ctx.moveTo(sx - 8 * z + waveOffset, sy - 4 * z);
@@ -335,8 +341,10 @@ export class IsometricEngine {
       ctx.strokeStyle = 'rgba(144, 205, 244, 0.55)';
       ctx.lineWidth = 1.5 * z;
       ctx.stroke();
-    } else if (terrain === 'SUMMER_PASTURE' || (terrain === 'STEPPE' && (gridX + gridY) % 3 === 0)) {
-      // Rüzgarda sallanan bozkır/yaylak ot kümeleri
+    } else if (
+      terrain === 'SUMMER_PASTURE' ||
+      (terrain === 'STEPPE' && (gridX + gridY) % 3 === 0)
+    ) {
       const sway = Math.sin(now * 0.003 + gridX * 0.5 + gridY * 0.5) * 1.5 * z;
       ctx.beginPath();
       ctx.moveTo(sx - 4 * z, sy + 2 * z);
@@ -349,7 +357,6 @@ export class IsometricEngine {
       ctx.lineWidth = 1.2 * z;
       ctx.stroke();
     } else if (terrain === 'WINTER_CAMP') {
-      // Korunaklı kışlak ahşap/taş çit tahkimatı
       ctx.beginPath();
       ctx.moveTo(sx - halfW * 0.45, sy - halfH * 0.2);
       ctx.lineTo(sx, sy - halfH * 0.55);
@@ -365,7 +372,8 @@ export class IsometricEngine {
     sx: number,
     sy: number,
     isSelf: boolean,
-    name?: string
+    name?: string,
+    isConquered: boolean = false
   ) {
     const z = this.zoom;
     ctx.save();
@@ -376,9 +384,9 @@ export class IsometricEngine {
     ctx.fill();
 
     // Otağ Silindirik Alt Duvarı (Kerege)
-    ctx.fillStyle = isSelf ? '#e8e0d5' : '#b8a99a';
+    ctx.fillStyle = isSelf ? '#e8e0d5' : isConquered ? '#d5e8e6' : '#b8a99a';
     ctx.fillRect(sx - 16 * z, sy - 10 * z, 32 * z, 12 * z);
-    ctx.strokeStyle = isSelf ? '#d4af37' : '#9b2c2c';
+    ctx.strokeStyle = isSelf || isConquered ? '#d4af37' : '#9b2c2c';
     ctx.lineWidth = 1.5 * z;
     ctx.strokeRect(sx - 16 * z, sy - 10 * z, 32 * z, 12 * z);
 
@@ -386,14 +394,14 @@ export class IsometricEngine {
     ctx.beginPath();
     ctx.arc(sx, sy - 10 * z, 16 * z, Math.PI, 0, false);
     ctx.closePath();
-    ctx.fillStyle = isSelf ? '#f7f3eb' : '#d6c7b2';
+    ctx.fillStyle = isSelf ? '#f7f3eb' : isConquered ? '#e6fffa' : '#d6c7b2';
     ctx.fill();
-    ctx.strokeStyle = isSelf ? '#d4af37' : '#c53030';
+    ctx.strokeStyle = isSelf ? '#d4af37' : isConquered ? '#38b2ac' : '#c53030';
     ctx.lineWidth = 2 * z;
     ctx.stroke();
 
     // Otağ Kapısı
-    ctx.fillStyle = isSelf ? '#744210' : '#4a1c1c';
+    ctx.fillStyle = isSelf || isConquered ? '#744210' : '#4a1c1c';
     ctx.fillRect(sx - 4 * z, sy - 6 * z, 8 * z, 8 * z);
 
     // Tuğ Direği
@@ -404,8 +412,8 @@ export class IsometricEngine {
     ctx.lineWidth = 2 * z;
     ctx.stroke();
 
-    // Sancak / Bayrak
-    ctx.fillStyle = isSelf ? '#2b6cb0' : '#e53e3e';
+    // Sancak / Bayrak (Fethedilen garnizonlar Turkuaz/Gök sancağı taşır)
+    ctx.fillStyle = isSelf ? '#2b6cb0' : isConquered ? '#319795' : '#e53e3e';
     ctx.beginPath();
     ctx.moveTo(sx, sy - 40 * z);
     ctx.lineTo(sx + 13 * z, sy - 35 * z);
@@ -417,7 +425,7 @@ export class IsometricEngine {
     if (name) {
       ctx.font = `bold ${Math.max(9, Math.round(11 * z))}px Inter, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillStyle = isSelf ? '#fefcbf' : '#fed7d7';
+      ctx.fillStyle = isSelf ? '#fefcbf' : isConquered ? '#81e6d9' : '#fed7d7';
       ctx.fillText(name, sx, sy - 45 * z);
     }
 
@@ -446,13 +454,11 @@ export class IsometricEngine {
     ctx.stroke();
 
     if (type === 'AKINCI' || type === 'ALP') {
-      // Atlı Süvari Gövdesi (İzometrik Savaş Atı Silüeti)
-      ctx.fillStyle = type === 'ALP' ? '#4a5568' : '#744210'; // Alp zırhlı demir kır at, Akıncı doru at
+      ctx.fillStyle = type === 'ALP' ? '#4a5568' : '#744210';
       ctx.beginPath();
       ctx.ellipse(sx, sy - 4 * z, 9 * z, 5 * z, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // At Boynu ve Başı
       ctx.beginPath();
       ctx.moveTo(sx + 5 * z, sy - 6 * z);
       ctx.lineTo(sx + 10 * z, sy - 13 * z);
@@ -461,7 +467,6 @@ export class IsometricEngine {
       ctx.closePath();
       ctx.fill();
 
-      // Binici Gövdesi ve Tolga (Miğfer)
       ctx.fillStyle = type === 'ALP' ? '#dd6b20' : '#3182ce';
       ctx.fillRect(sx - 3 * z, sy - 15 * z, 6 * z, 8 * z);
       ctx.beginPath();
@@ -470,14 +475,12 @@ export class IsometricEngine {
       ctx.fill();
 
       if (type === 'AKINCI') {
-        // Kompozit Türk Yayı
         ctx.beginPath();
         ctx.arc(sx + 6 * z, sy - 13 * z, 6 * z, -Math.PI * 0.4, Math.PI * 0.4);
         ctx.strokeStyle = '#ecc94b';
         ctx.lineWidth = 1.8 * z;
         ctx.stroke();
       } else {
-        // Alp Kargısı / Mızrağı ve Flama
         ctx.beginPath();
         ctx.moveTo(sx - 2 * z, sy - 8 * z);
         ctx.lineTo(sx + 9 * z, sy - 25 * z);
@@ -494,17 +497,14 @@ export class IsometricEngine {
         ctx.fill();
       }
     } else if (type === 'CERI') {
-      // Yaya Çeri Piyade Gövdesi
       ctx.fillStyle = '#4a5568';
       ctx.fillRect(sx - 4 * z, sy - 13 * z, 8 * z, 11 * z);
 
-      // Demir Miğfer
       ctx.beginPath();
       ctx.arc(sx, sy - 15 * z, 4 * z, 0, Math.PI * 2);
       ctx.fillStyle = '#a0aec0';
       ctx.fill();
 
-      // Yuvarlak Kalkan
       ctx.beginPath();
       ctx.arc(sx + 4 * z, sy - 8 * z, 5 * z, 0, Math.PI * 2);
       ctx.fillStyle = '#744210';
@@ -513,7 +513,6 @@ export class IsometricEngine {
       ctx.lineWidth = 1.5 * z;
       ctx.stroke();
 
-      // Mızrak
       ctx.beginPath();
       ctx.moveTo(sx - 4 * z, sy - 2 * z);
       ctx.lineTo(sx - 4 * z, sy - 22 * z);
@@ -521,20 +520,17 @@ export class IsometricEngine {
       ctx.lineWidth = 1.8 * z;
       ctx.stroke();
     } else if (type === 'ALPAGUT') {
-      // Kurt Başlı Tuğ ve Altın Zırhlı Alpagut Muhafızı
       ctx.fillStyle = '#975a16';
       ctx.fillRect(sx - 5 * z, sy - 15 * z, 10 * z, 13 * z);
       ctx.strokeStyle = '#ecc94b';
       ctx.lineWidth = 1.5 * z;
       ctx.strokeRect(sx - 5 * z, sy - 15 * z, 10 * z, 13 * z);
 
-      // Altın Tolga
       ctx.beginPath();
       ctx.arc(sx, sy - 18 * z, 4.5 * z, 0, Math.PI * 2);
       ctx.fillStyle = '#ecc94b';
       ctx.fill();
 
-      // Çift El Yatağan / Kılıç ve Tuğ Sancağı
       ctx.beginPath();
       ctx.moveTo(sx + 5 * z, sy - 4 * z);
       ctx.lineTo(sx + 5 * z, sy - 28 * z);
@@ -577,7 +573,6 @@ export class IsometricEngine {
 
       ctx.save();
 
-      // 1. Genişleyen Hilal / Turan Kuşatma Çemberi
       const radius = (18 + progress * 55) * z;
       ctx.beginPath();
       ctx.ellipse(sx, sy, radius, radius * 0.5, 0, 0, Math.PI * 2);
@@ -585,20 +580,18 @@ export class IsometricEngine {
       ctx.lineWidth = 3 * z;
       ctx.stroke();
 
-      // İkinci Kızıl Darbe Halkası
       ctx.beginPath();
       ctx.ellipse(sx, sy, radius * 0.7, radius * 0.35, 0, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(229, 62, 62, ${1 - progress})`;
       ctx.lineWidth = 2 * z;
       ctx.stroke();
 
-      // 2. Ok Yağmuru Çizgileri
       const arrowCount = 8;
       for (let i = 0; i < arrowCount; i++) {
         const angle = (i / arrowCount) * Math.PI * 2;
         const dropProgress = (progress * 3 + i * 0.12) % 1;
         const ax = sx + Math.cos(angle) * 24 * z * (1 - dropProgress * 0.5);
-        const ay = sy - (45 * (1 - dropProgress)) * z + Math.sin(angle) * 10 * z;
+        const ay = sy - 45 * (1 - dropProgress) * z + Math.sin(angle) * 10 * z;
 
         ctx.beginPath();
         ctx.moveTo(ax - 4 * z, ay - 12 * z);
