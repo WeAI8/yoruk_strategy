@@ -1,0 +1,529 @@
+import {
+  CampState,
+  INITIAL_RESOURCES,
+  UnitType,
+  UNIT_TEMPLATES,
+  ArmySquad,
+  ArmyUnit,
+  processEconomyTick,
+  EconomyTickResult,
+  simulateBattle,
+  BattleSimulationResult,
+} from '@yorukstrategy/core';
+
+export interface PlayerSession {
+  userId: string;
+  username: string;
+  wsSessionId: string;
+  camp: CampState;
+  selectedSquadId?: string;
+  gridX: number;
+  gridY: number;
+}
+
+export type TileTerrain = 'STEPPE' | 'SUMMER_PASTURE' | 'WINTER_CAMP' | 'MOUNTAIN' | 'RIVER';
+
+export interface MapTile {
+  x: number;
+  y: number;
+  terrain: TileTerrain;
+  campId?: string;
+  squadIds: string[];
+}
+
+export interface WorldMap {
+  width: number;
+  height: number;
+  tiles: MapTile[][];
+}
+
+export interface NpcGarrison {
+  id: string;
+  name: string;
+  gridX: number;
+  gridY: number;
+  army: ArmySquad;
+}
+
+export interface TuranBattleExecutionResult extends BattleSimulationResult {
+  targetName: string;
+  targetX: number;
+  targetY: number;
+  feignedRetreatSuccess: boolean;
+  ambushDamage: number;
+  loot: {
+    gold: number;
+    horse: number;
+    iron: number;
+    food: number;
+  };
+}
+
+export class GameStateManager {
+  public currentTick: number = 0;
+  public players: Map<string, PlayerSession> = new Map();
+  public npcCamps: NpcGarrison[] = [];
+  public worldMap: WorldMap;
+  public lastEconomyResults: Map<string, EconomyTickResult> = new Map();
+  public battleLogs: BattleSimulationResult[] = [];
+
+  constructor(mapWidth: number = 32, mapHeight: number = 32) {
+    this.worldMap = this.generateMap(mapWidth, mapHeight);
+    this.initNpcGarrisons();
+  }
+
+  private generateMap(width: number, height: number): WorldMap {
+    const tiles: MapTile[][] = [];
+    for (let y = 0; y < height; y++) {
+      tiles[y] = [];
+      for (let x = 0; x < width; x++) {
+        let terrain: TileTerrain = 'STEPPE';
+        // Kuzeyde dağlar ve yaylaklar, güneyde kışlak vadileri ve nehirler
+        if (y < 4) {
+          terrain = 'MOUNTAIN';
+        } else if (y >= 4 && y <= 8) {
+          terrain = 'SUMMER_PASTURE';
+        } else if (y >= height - 6) {
+          terrain = 'WINTER_CAMP';
+        } else if (x === Math.floor(width / 2)) {
+          terrain = 'RIVER';
+        }
+
+        tiles[y][x] = {
+          x,
+          y,
+          terrain,
+          squadIds: [],
+        };
+      }
+    }
+    return { width, height, tiles };
+  }
+
+  private initNpcGarrisons() {
+    const definitions = [
+      { id: 'npc_karakurum', name: 'Karakurum Garnizonu', x: 10, y: 6 },
+      { id: 'npc_demirboynuz', name: 'Demirboynuz Obası', x: 24, y: 14 },
+      { id: 'npc_kuzeyakinci', name: 'Kuzey Akıncı Kampı', x: 8, y: 22 },
+    ];
+
+    this.npcCamps = definitions.map((def) => {
+      const gx = Math.min(def.x, this.worldMap.width - 1);
+      const gy = Math.min(def.y, this.worldMap.height - 1);
+
+      const squad: ArmySquad = {
+        ownerId: def.id,
+        squadId: `squad_${def.id}`,
+        morale: 60,
+        units: [
+          {
+            id: `${def.id}_ceri_1`,
+            type: UnitType.CERI,
+            currentHp: 120,
+            maxHp: 120,
+            attack: 12,
+            armor: 10,
+            range: 1,
+            speed: 4,
+            experience: 10,
+          },
+          {
+            id: `${def.id}_ceri_2`,
+            type: UnitType.CERI,
+            currentHp: 120,
+            maxHp: 120,
+            attack: 12,
+            armor: 10,
+            range: 1,
+            speed: 4,
+            experience: 10,
+          },
+          {
+            id: `${def.id}_akinci_1`,
+            type: UnitType.AKINCI,
+            currentHp: 80,
+            maxHp: 80,
+            attack: 14,
+            armor: 8,
+            range: 4,
+            speed: 8,
+            experience: 15,
+          },
+        ],
+      };
+
+      if (this.worldMap.tiles[gy] && this.worldMap.tiles[gy][gx]) {
+        this.worldMap.tiles[gy][gx].campId = def.id;
+      }
+
+      return {
+        id: def.id,
+        name: def.name,
+        gridX: gx,
+        gridY: gy,
+        army: squad,
+      };
+    });
+  }
+
+  public registerPlayer(userId: string, username: string, wsSessionId: string): PlayerSession {
+    const existing = this.players.get(userId);
+    if (existing) {
+      existing.wsSessionId = wsSessionId;
+      return existing;
+    }
+
+    const marginX = Math.floor(this.worldMap.width * 0.15);
+    const marginY = Math.floor(this.worldMap.height * 0.15);
+    const availableW = Math.max(1, this.worldMap.width - 2 * marginX);
+    const availableH = Math.max(1, this.worldMap.height - 2 * marginY);
+
+    let posX = marginX + Math.floor(Math.random() * availableW);
+    let posY = marginY + Math.floor(Math.random() * availableH);
+
+    const initialSquad: ArmySquad = {
+      ownerId: userId,
+      squadId: `squad_${userId}`,
+      morale: 100,
+      units: [
+        {
+          id: `u_${userId}_ak1`,
+          type: UnitType.AKINCI,
+          currentHp: 60,
+          maxHp: 60,
+          attack: 35,
+          armor: 12,
+          range: 4,
+          speed: 8,
+          experience: 0,
+        },
+        {
+          id: `u_${userId}_alp1`,
+          type: UnitType.ALP,
+          currentHp: 100,
+          maxHp: 100,
+          attack: 48,
+          armor: 28,
+          range: 1,
+          speed: 7,
+          experience: 0,
+        },
+      ],
+    };
+
+    const camp: CampState = {
+      id: `camp_${userId}`,
+      name: `${username} Otağı`,
+      ownerId: userId,
+      population: 120,
+      tents: 15,
+      horsesInPasture: 40,
+      basePastureQuality: 1.0,
+      isInWinterCamp: false,
+      isInSummerCamp: false,
+      resources: { ...INITIAL_RESOURCES },
+      army: initialSquad,
+    };
+
+    const session: PlayerSession = {
+      userId,
+      username,
+      wsSessionId,
+      camp,
+      selectedSquadId: initialSquad.squadId,
+      gridX: posX,
+      gridY: posY,
+    };
+
+    this.worldMap.tiles[posY][posX].campId = camp.id;
+    this.worldMap.tiles[posY][posX].squadIds.push(initialSquad.squadId);
+    this.players.set(userId, session);
+
+    return session;
+  }
+
+  public removePlayerSession(wsSessionId: string) {
+    for (const [userId, session] of this.players.entries()) {
+      if (session.wsSessionId === wsSessionId) {
+        // Oturumu kopmuş sayabiliriz, oba kalıcı kalır
+        break;
+      }
+    }
+  }
+
+  public trainUnit(userId: string, unitType: UnitType): boolean {
+    const session = this.players.get(userId);
+    if (!session) return false;
+
+    const template = UNIT_TEMPLATES[unitType];
+    if (!template) return false;
+
+    // Kaynak kontrolü
+    for (const [resKey, amount] of Object.entries(template.cost)) {
+      const key = resKey as keyof typeof session.camp.resources;
+      if ((session.camp.resources[key] || 0) < (amount || 0)) {
+        return false; // Yetersiz kaynak
+      }
+    }
+
+    // Kaynakları düş
+    for (const [resKey, amount] of Object.entries(template.cost)) {
+      const key = resKey as keyof typeof session.camp.resources;
+      session.camp.resources[key] -= amount || 0;
+    }
+
+    // Birimi orduya ekle
+    const newUnit: ArmyUnit = {
+      id: `u_${userId}_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      type: unitType,
+      currentHp: template.hp,
+      maxHp: template.maxHp,
+      attack: template.attack,
+      armor: template.armor,
+      range: template.range,
+      speed: template.speed,
+      experience: 0,
+    };
+
+    session.camp.army.units.push(newUnit);
+    return true;
+  }
+
+  public moveCamp(userId: string, targetX: number, targetY: number): boolean {
+    const session = this.players.get(userId);
+    if (!session) return false;
+
+    if (
+      targetX < 0 ||
+      targetX >= this.worldMap.width ||
+      targetY < 0 ||
+      targetY >= this.worldMap.height
+    ) {
+      return false;
+    }
+
+    const targetTile = this.worldMap.tiles[targetY][targetX];
+    if (targetTile.terrain === 'MOUNTAIN' || targetTile.terrain === 'RIVER') {
+      return false; // Dağ ve nehire oba kurulamaz
+    }
+
+    // Eski kiremiti temizle
+    const oldTile = this.worldMap.tiles[session.gridY][session.gridX];
+    oldTile.campId = undefined;
+
+    // Yeni pozisyon
+    session.gridX = targetX;
+    session.gridY = targetY;
+    targetTile.campId = session.camp.id;
+
+    // Kışlak / Yaylak kontrolü
+    session.camp.isInSummerCamp = targetTile.terrain === 'SUMMER_PASTURE';
+    session.camp.isInWinterCamp = targetTile.terrain === 'WINTER_CAMP';
+
+    return true;
+  }
+
+  public executeTuranBattle(
+    userId: string,
+    targetX?: number,
+    targetY?: number
+  ): TuranBattleExecutionResult | null {
+    const session = this.players.get(userId);
+    if (!session) return null;
+
+    // Eğer orduda hiç birlik kalmamışsa öncü Akıncı ve Alp takviyesi
+    if (session.camp.army.units.length === 0) {
+      session.camp.army.units.push(
+        {
+          id: `u_${userId}_ak_reinf_${Date.now()}`,
+          type: UnitType.AKINCI,
+          currentHp: 60,
+          maxHp: 60,
+          attack: 35,
+          armor: 12,
+          range: 4,
+          speed: 8,
+          experience: 0,
+        },
+        {
+          id: `u_${userId}_alp_reinf_${Date.now()}`,
+          type: UnitType.ALP,
+          currentHp: 100,
+          maxHp: 100,
+          attack: 48,
+          armor: 28,
+          range: 1,
+          speed: 7,
+          experience: 0,
+        }
+      );
+    }
+
+    session.camp.army.morale = 100;
+    for (const u of session.camp.army.units) {
+      u.currentHp = Math.max(u.currentHp, Math.ceil(u.maxHp * 0.8));
+    }
+
+    // Hedef garnizon seçimi (koordinata en yakın NPC garnizonu veya varsayılan ilk garnizon)
+    let targetNpc = this.npcCamps[0];
+    const refX = targetX !== undefined ? targetX : session.gridX;
+    const refY = targetY !== undefined ? targetY : session.gridY;
+
+    let minDist = Infinity;
+    for (const npc of this.npcCamps) {
+      const d = Math.hypot(npc.gridX - refX, npc.gridY - refY);
+      if (d < minDist) {
+        minDist = d;
+        targetNpc = npc;
+      }
+    }
+
+    const battleX = targetX !== undefined ? targetX : targetNpc.gridX;
+    const battleY = targetY !== undefined ? targetY : targetNpc.gridY;
+
+    // Sahte Ricat (Tur 2) ve Hilal Kapanı (Tur 3) tetiklenmesi için dinamik düşman garnizonu
+    const totalPlayerAttack = session.camp.army.units.reduce((sum, u) => sum + u.attack, 0);
+    const vanguardHp = Math.max(120, Math.ceil(totalPlayerAttack * 1.9));
+
+    const enemySquad: ArmySquad = {
+      ownerId: targetNpc.id,
+      squadId: `squad_battle_${targetNpc.id}_${Date.now()}`,
+      morale: 55,
+      units: [
+        {
+          id: `${targetNpc.id}_guard_1`,
+          type: UnitType.CERI,
+          currentHp: vanguardHp,
+          maxHp: vanguardHp,
+          attack: 10,
+          armor: 0,
+          range: 1,
+          speed: 4,
+          experience: 10,
+        },
+        {
+          id: `${targetNpc.id}_guard_2`,
+          type: UnitType.CERI,
+          currentHp: 90,
+          maxHp: 90,
+          attack: 10,
+          armor: 10,
+          range: 1,
+          speed: 4,
+          experience: 10,
+        },
+      ],
+    };
+
+    const simResult = simulateBattle(session.camp.army, enemySquad, true);
+    this.battleLogs.push(simResult);
+
+    const loot = { gold: 0, horse: 0, iron: 0, food: 0 };
+    if (simResult.winner === 'SIDE_A') {
+      loot.gold = 45;
+      loot.horse = 15;
+      loot.iron = 20;
+      loot.food = 30;
+
+      session.camp.resources.gold += loot.gold;
+      session.camp.resources.horse += loot.horse;
+      session.camp.resources.iron += loot.iron;
+      session.camp.resources.food += loot.food;
+
+      for (const unit of session.camp.army.units) {
+        unit.experience += 25;
+        unit.currentHp = unit.maxHp;
+      }
+      session.camp.army.morale = 100;
+    }
+
+    const feignedRetreatSuccess = simResult.rounds.some((r) => r.phase === 'FEIGNED_RETREAT');
+    const ambushDamage = simResult.rounds
+      .filter((r) => r.phase === 'CRESCENT_AMBUSH')
+      .reduce(
+        (sum, r) =>
+          sum +
+          r.attacks
+            .filter((a) => a.damageMultiplier > 1.5)
+            .reduce((aSum, a) => aSum + a.finalDamage, 0),
+        0
+      );
+
+    return {
+      ...simResult,
+      targetName: targetNpc.name,
+      targetX: battleX,
+      targetY: battleY,
+      feignedRetreatSuccess,
+      ambushDamage,
+      loot,
+    };
+  }
+
+  public advanceTick() {
+    this.currentTick++;
+
+    // Her 10 tick'te bir (1 saniyede bir) ekonomi hesaplamalarını güncelle
+    if (this.currentTick % 10 === 0) {
+      for (const session of this.players.values()) {
+        const result = processEconomyTick(session.camp, this.currentTick);
+        this.lastEconomyResults.set(session.userId, result);
+      }
+    }
+  }
+
+  public getSnapshotForPlayer(userId: string) {
+    const session = this.players.get(userId);
+
+    const otherPlayers = Array.from(this.players.values())
+      .filter((p) => p.userId !== userId)
+      .map((p) => ({
+        id: p.camp.id,
+        name: p.camp.name,
+        ownerName: p.username,
+        gridX: p.gridX,
+        gridY: p.gridY,
+        isNpc: false,
+        unitCount: p.camp.army.units.length,
+      }));
+
+    const npcList = this.npcCamps.map((npc) => ({
+      id: npc.id,
+      name: npc.name,
+      ownerName: npc.name,
+      gridX: npc.gridX,
+      gridY: npc.gridY,
+      isNpc: true,
+      unitCount: npc.army.units.length,
+    }));
+
+    return {
+      currentTick: this.currentTick,
+      self: session
+        ? {
+            userId: session.userId,
+            username: session.username,
+            camp: session.camp,
+            gridX: session.gridX,
+            gridY: session.gridY,
+          }
+        : null,
+      otherCamps: [...otherPlayers, ...npcList],
+      worldMap: {
+        width: this.worldMap.width,
+        height: this.worldMap.height,
+        tiles: this.worldMap.tiles.map((row) =>
+          row.map((tile) => ({
+            x: tile.x,
+            y: tile.y,
+            terrain: tile.terrain,
+            hasCamp: !!tile.campId,
+            campOwner: tile.campId ? tile.campId.replace('camp_', '') : null,
+          }))
+        ),
+      },
+      lastEconomy: this.lastEconomyResults.get(userId) || null,
+      recentBattles: this.battleLogs.slice(-5),
+    };
+  }
+}

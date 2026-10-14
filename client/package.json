@@ -1,0 +1,21 @@
+{
+  "name": "@yorukstrategy/client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "2.5D Isometric WebGL Client for Yoruk Strategy: Kadim Bozkir",
+  "scripts": {
+    "dev": "vite --port 3001 --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 3001"
+  },
+  "dependencies": {
+    "@yorukgames/game-sdk": "file:../../yoruk_games/sdk/yoruk-game-sdk",
+    "@yorukstrategy/core": "*",
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

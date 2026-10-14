@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  game-db:
+    image: postgres:16-alpine
+    container_name: yoruk_strategy_db
+    environment:
+      POSTGRES_DB: yoruk_strategy_db
+      POSTGRES_USER: strategy_admin
+      POSTGRES_PASSWORD: strategy_secret_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - strategy_db_data:/var/lib/postgresql/data
+    networks:
+      - yoruk_strategy_net
+
+  game-redis:
+    image: redis:7-alpine
+    container_name: yoruk_strategy_redis
+    ports:
+      - "6380:6379"
+    networks:
+      - yoruk_strategy_net
+
+  game-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: yoruk_strategy_server
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://strategy_admin:strategy_secret_password@game-db:5432/yoruk_strategy_db
+      REDIS_URL: redis://game-redis:6379
+      PLATFORM_AUTH_URL: http://backend:8080/api/v1/auth/exchange-ticket
+      CLIENT_ID: game-client-strategy-01
+      CLIENT_SECRET: yoruk_strategy_secret_key
+    depends_on:
+      - game-db
+      - game-redis
+    networks:
+      - yoruk_strategy_net
+
+  game-client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: yoruk_strategy_client
+    ports:
+      - "3001:80"
+    depends_on:
+      - game-server
+    networks:
+      - yoruk_strategy_net
+
+networks:
+  yoruk_strategy_net:
+    driver: bridge
+
+volumes:
+  strategy_db_data:
